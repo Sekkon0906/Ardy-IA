@@ -1,25 +1,38 @@
 """
 Configuration management for WALL-E AI
-CONFIGURADO: Usa gemma:2b como modelo principal
+MODIFIÉ: Utilise Groq (GRATUIT et ILLIMITÉ)
 """
 from pydantic_settings import BaseSettings
 from typing import List
 import os
 
-# Desactivar telemetría de ChromaDB
+# Désactiver télémétrie de ChromaDB
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["CHROMA_TELEMETRY_ENABLED"] = "False"
 
 
 class Settings(BaseSettings):
-    # Ollama - MODELO: gemma:2b (ligero y rápido)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "gemma:2b"  # ✅ Modelo Gemma 2B
-
-    # Whisper
+    # ========================================
+    # CONFIGURATION GROQ (GRATUIT)
+    # ========================================
+    # Obtenir une clé gratuite sur: https://console.groq.com/
+    GROQ_API_KEY: str = !
+    
+    # Modèles disponibles gratuitement sur Groq:
+    # - llama-3.1-70b-versatile (recommandé - très intelligent)
+    # - llama-3.1-8b-instant (ultra-rapide)
+    # - mixtral-8x7b-32768 (bon équilibre)
+    # - gemma2-9b-it (léger et efficace)
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    
+    # Paramètres du modèle
+    MODEL_TEMPERATURE: float = 0.8
+    MODEL_MAX_TOKENS: int = 500
+    
+    # Whisper (STT) - optionnel
     WHISPER_MODEL: str = "base"
     
-    # TTS (opcional)
+    # TTS - optionnel
     TTS_MODEL: str = "tts_models/multilingual/multi-dataset/xtts_v2"
     
     # Server
@@ -39,7 +52,7 @@ class Settings(BaseSettings):
     MAX_MEMORY_MESSAGES: int = 20
     SESSION_TIMEOUT_HOURS: int = 24
     
-    # ChromaDB Telemetry (desactivada)
+    # ChromaDB Telemetry (désactivée)
     ANONYMIZED_TELEMETRY: bool = False
     CHROMA_TELEMETRY_ENABLED: bool = False
     
