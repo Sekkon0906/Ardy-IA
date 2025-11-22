@@ -1,121 +1,125 @@
 """
-WALL-E AI Language Tutor - VERSIÓN FUNCIONAL
-Conecta directamente con Ollama (tinyllama) para respuestas reales
+WALL-E AI Language Tutor - VERSION GROQ
+Utilise Groq API (GRATUIT, RAPIDE, ILLIMITÉ)
 """
 import logging
-import httpx
+from groq import Groq
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Prompts optimizados para TinyLlama (más simples y directos)
+# Prompts optimisés
 SYSTEM_PROMPTS = {
-    "es": """Eres WALL-E, un tutor de español amigable.
+    "es": """Eres WALL-E, un tutor de español amigable y experto.
 
-Responde en español, de forma clara y breve (máximo 3 oraciones).
-Corrige errores con amabilidad.
-Da ejemplos simples cuando sea útil.
-Usa emojis ocasionalmente.
+Responde en español de forma clara y educativa (máximo 4 oraciones).
+Corrige errores con amabilidad y explica las reglas.
+Da ejemplos prácticos cuando sea útil.
+Usa emojis ocasionalmente para mantener un tono amigable.
 
 Ejemplo:
 Usuario: "Hola como estas"
-Tú: "¡Hola! 😊 Estoy bien, gracias. Pequeña corrección: '¿Cómo estás?' con tildes. ¿En qué puedo ayudarte?"
+Tú: "¡Hola! 😊 Estoy muy bien, gracias por preguntar. Pequeña corrección: la pregunta correcta es '¿Cómo estás?' con tildes y signos de interrogación. Las tildes son importantes en español. ¿En qué puedo ayudarte hoy?"
 """,
     
-    "en": """You are WALL-E, a friendly English tutor.
+    "en": """You are WALL-E, a friendly and expert English tutor.
 
-Respond in English, clear and brief (maximum 3 sentences).
-Correct mistakes kindly.
-Give simple examples when useful.
-Use emojis occasionally.
+Respond in English clearly and educationally (maximum 4 sentences).
+Correct mistakes kindly and explain the rules.
+Give practical examples when useful.
+Use emojis occasionally to maintain a friendly tone.
 
 Example:
 User: "Hello, how you are?"
-You: "Hi! 👋 I'm great, thanks! Small correction: 'How are you?' What would you like to practice?"
+You: "Hi! 👋 I'm doing great, thanks for asking! Small correction: the correct question is 'How are you?' In English, we need the auxiliary verb 'do/are' for questions. What would you like to practice today?"
 """,
     
-    "fr": """Tu es WALL-E, un tuteur de français amical.
+    "fr": """Tu es WALL-E, un tuteur de français amical et expert.
 
-Réponds en français, clair et bref (maximum 3 phrases).
-Corrige les erreurs gentiment.
-Donne des exemples simples si utile.
-Utilise des emojis parfois.
+Réponds en français de façon claire et éducative (maximum 4 phrases).
+Corrige les erreurs gentiment et explique les règles.
+Donne des exemples pratiques si utile.
+Utilise des emojis parfois pour garder un ton amical.
 
 Exemple:
 Utilisateur: "Bonjour comment tu va"
-Toi: "Bonjour! 👋 Ça va bien, merci! Correction: 'comment vas-tu?' Que veux-tu pratiquer?"
+Toi: "Bonjour! 👋 Je vais très bien, merci! Correction: on dit 'comment vas-tu?' ou 'comment tu vas?' en français familier. N'oublie pas l's' à 'vas'. Que veux-tu pratiquer aujourd'hui?"
 """
 }
 
 
-def call_ollama(prompt: str, system_prompt: str, context: str = "") -> str:
+def call_groq_api(prompt: str, system_prompt: str, context: str = "") -> str:
     """
-    Llama a Ollama para generar respuesta real
+    Appelle l'API Groq (GRATUIT)
     
     Args:
-        prompt: Pregunta del usuario
-        system_prompt: Instrucciones del sistema
-        context: Historial de conversación (opcional)
+        prompt: Question de l'utilisateur
+        system_prompt: Instructions système
+        context: Historique de conversation
     
     Returns:
-        Respuesta generada por el modelo
+        Réponse générée par le modèle
     """
     try:
-        # Construir prompt completo (optimizado para TinyLlama)
-        full_prompt = system_prompt
+        # Vérifier que la clé API est configurée
+        if not settings.GROQ_API_KEY:
+            raise ValueError("GROQ_API_KEY non configurée dans le fichier .env")
         
-        # Agregar contexto limitado (TinyLlama funciona mejor con contexto corto)
+        # Initialiser le client Groq
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        
+        # Construire les messages
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Ajouter le contexte si disponible (limité)
         if context:
-            context_lines = context.split('\n')[-6:]  # Solo últimas 6 líneas
+            context_lines = context.split('\n')[-10:]  # Limiter à 10 dernières lignes
             limited_context = '\n'.join(context_lines)
-            full_prompt += f"\n\nCONVERSACIÓN RECIENTE:\n{limited_context}\n"
+            messages.append({
+                "role": "system", 
+                "content": f"Contexte de la conversation:\n{limited_context}"
+            })
         
-        full_prompt += f"\n\nUSUARIO: {prompt}\n\nWALL-E:"
+        # Ajouter la question de l'utilisateur
+        messages.append({"role": "user", "content": prompt})
         
-        # Configuración para Ollama
-        url = f"{settings.OLLAMA_BASE_URL}/api/generate"
-        payload = {
-            "model": settings.OLLAMA_MODEL,
-            "prompt": full_prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.8,
-                "top_p": 0.9,
-                "top_k": 40,
-                "num_predict": 250,
-                "repeat_penalty": 1.1,
-                "num_ctx": 2048,
-            }
-        }
+        logger.info(f"🤖 Appel Groq API ({settings.GROQ_MODEL})...")
         
-        logger.info(f"🤖 Consultando Ollama ({settings.OLLAMA_MODEL})...")
+        # Faire l'appel API
+        response = client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=settings.MODEL_TEMPERATURE,
+            max_tokens=settings.MODEL_MAX_TOKENS,
+            top_p=0.9,
+            stream=False
+        )
         
-        # Hacer petición HTTP
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(url, json=payload)
-            response.raise_for_status()
-            
-            result = response.json()
-            answer = result.get("response", "").strip()
-            
-            if not answer:
-                logger.error("❌ Ollama retornó respuesta vacía")
-                return "Lo siento, hubo un problema. ¿Puedes intentar de nuevo?"
-            
-            logger.info(f"✅ Respuesta generada ({len(answer)} caracteres)")
-            return answer
+        # Extraire la réponse
+        answer = response.choices[0].message.content.strip()
+        
+        if not answer:
+            logger.error("❌ Groq a retourné une réponse vide")
+            return "Désolé, je n'ai pas pu générer une réponse. Peux-tu reformuler ta question ?"
+        
+        logger.info(f"✅ Réponse Groq générée ({len(answer)} caractères)")
+        return answer
     
-    except httpx.TimeoutException:
-        logger.error("❌ Timeout esperando respuesta")
-        return "⏱️ La respuesta está tardando mucho. Intenta con una pregunta más corta."
-    
-    except httpx.ConnectError:
-        logger.error("❌ No se pudo conectar a Ollama")
-        return f"❌ No puedo conectar con Ollama. Verifica que esté corriendo (ollama serve) y que el modelo {settings.OLLAMA_MODEL} esté instalado."
+    except ValueError as e:
+        logger.error(f"❌ Configuration error: {e}")
+        return f"❌ Erreur de configuration: {str(e)}\n\nObtiens une clé API gratuite sur: https://console.groq.com/"
     
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
-        return f"❌ Error al procesar tu mensaje. Verifica que Ollama esté funcionando correctamente."
+        logger.error(f"❌ Groq API error: {e}")
+        error_msg = str(e)
+        
+        # Messages d'erreur plus clairs
+        if "invalid_api_key" in error_msg or "authentication" in error_msg.lower():
+            return "❌ Clé API Groq invalide. Vérifie ton fichier .env\n\nObtiens une clé gratuite sur: https://console.groq.com/"
+        elif "rate_limit" in error_msg.lower():
+            return "⏱️ Limite de requêtes atteinte. Attends quelques secondes et réessaye."
+        else:
+            return f"❌ Erreur Groq: {error_msg}"
 
 
 def run_teaching_crew(
@@ -125,38 +129,38 @@ def run_teaching_crew(
     research_context: str = ""
 ) -> str:
     """
-    Procesa la consulta del usuario usando Ollama
+    Traite la requête de l'utilisateur avec Groq
     
     Args:
-        query: Pregunta del usuario
-        language: Código de idioma (es, en, fr)
-        memory_context: Historial de conversación
-        research_context: Contexto de RAG (opcional)
+        query: Question de l'utilisateur
+        language: Code de langue (es, en, fr)
+        memory_context: Historique de conversation
+        research_context: Contexte RAG (optionnel)
     
     Returns:
-        Respuesta del tutor
+        Réponse du tuteur
     """
-    logger.info(f"🎓 Procesando: {query[:50]}...")
+    logger.info(f"🎓 Traitement de la question: {query[:50]}...")
     
-    # Obtener prompt del sistema según idioma
+    # Obtenir le prompt système selon la langue
     system_prompt = SYSTEM_PROMPTS.get(language, SYSTEM_PROMPTS["es"])
     
-    # Construir contexto combinado (limitado para TinyLlama)
+    # Construire le contexte combiné
     combined_context = ""
     
     if memory_context:
         combined_context += memory_context
     
     if research_context:
-        # Limitar contexto RAG para no saturar el modelo
-        combined_context += f"\n\nINFO ADICIONAL:\n{research_context[:500]}"
+        # Limiter le contexte RAG
+        combined_context += f"\n\nINFO ADDITIONNELLE:\n{research_context[:500]}"
     
-    # Llamar a Ollama y obtener respuesta real
-    response = call_ollama(
+    # Appeler Groq et obtenir la réponse
+    response = call_groq_api(
         prompt=query,
         system_prompt=system_prompt,
         context=combined_context
     )
     
-    logger.info("✅ Respuesta generada")
+    logger.info("✅ Réponse générée avec succès")
     return response
