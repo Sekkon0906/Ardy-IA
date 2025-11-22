@@ -1,7 +1,7 @@
 """
 WALL-E AI - Main FastAPI Application
-Complete language learning assistant with voice input/output
-COMPATIBLE with ChromaDB 0.4.24, LangChain 0.2.16
+Complete language learning assistant with Groq API
+VERSION GROQ (GRATUIT et RAPIDE)
 """
 import logging
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -21,7 +21,7 @@ from backend.services.memory_service import memory_service
 from backend.services.rag_service import rag_service
 from backend.agents.language_tutor import run_teaching_crew
 
-# Configure logging
+# Configuration du logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -31,57 +31,64 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle events"""
-    logger.info("🚀 Starting WALL-E AI...")
+    """Événements de cycle de vie"""
+    logger.info("🚀 Démarrage de WALL-E AI avec Groq...")
     
-    # Verificar versiones (SIN CrewAI)
+    # Vérifier les versions
     try:
         import chromadb
-        import langchain
+        import groq
         logger.info(f"📦 ChromaDB: {chromadb.__version__}")
-        logger.info(f"📦 LangChain: {langchain.__version__}")
+        logger.info(f"📦 Groq: {groq.__version__}")
     except Exception as e:
-        logger.warning(f"⚠️ No se pudieron verificar versiones: {e}")
+        logger.warning(f"⚠️ Vérification des versions échouée: {e}")
     
-    # Load models (optional, pueden no estar instalados)
+    # Charger les modèles optionnels
     try:
         stt_service.load_model()
     except Exception as e:
-        logger.warning(f"⚠️ STT service no disponible: {e}")
+        logger.warning(f"⚠️ STT non disponible: {e}")
     
     try:
         tts_service.load_model()
     except Exception as e:
-        logger.warning(f"⚠️ TTS service no disponible: {e}")
+        logger.warning(f"⚠️ TTS non disponible: {e}")
     
-    # Test ChromaDB connection
+    # Test connexion ChromaDB
     try:
         if rag_service.test_connection():
-            logger.info("✅ ChromaDB conectado correctamente")
+            logger.info("✅ ChromaDB connecté")
         else:
-            logger.warning("⚠️ ChromaDB connection test failed")
+            logger.warning("⚠️ ChromaDB test échoué")
     except Exception as e:
-        logger.error(f"❌ ChromaDB error: {e}")
+        logger.error(f"❌ Erreur ChromaDB: {e}")
     
-    # Cleanup old data
+    # Nettoyage
     try:
         memory_service.cleanup_old_sessions()
         tts_service.cleanup_old_files()
     except Exception as e:
-        logger.warning(f"⚠️ Cleanup warning: {e}")
+        logger.warning(f"⚠️ Avertissement nettoyage: {e}")
     
-    logger.info("✅ WALL-E AI ready!")
+    # Vérifier la clé API Groq
+    if not settings.GROQ_API_KEY:
+        logger.error("❌ GROQ_API_KEY non configurée dans .env!")
+        logger.error("   Obtiens une clé gratuite sur: https://console.groq.com/keys")
+    else:
+        logger.info(f"✅ Groq API configurée (modèle: {settings.GROQ_MODEL})")
+    
+    logger.info("✅ WALL-E AI prêt!")
     
     yield
     
-    logger.info("👋 Shutting down WALL-E AI...")
+    logger.info("👋 Arrêt de WALL-E AI...")
 
 
-# Initialize FastAPI
+# Initialiser FastAPI
 app = FastAPI(
     title="WALL-E AI",
-    description="Multilingual Language Learning Assistant with Voice",
-    version="2.1.0",
+    description="Assistant d'apprentissage multilingue avec Groq",
+    version="2.1.0-groq",
     lifespan=lifespan
 )
 
@@ -94,36 +101,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static audio files (crear directorio si no existe)
+# Servir fichiers audio statiques
 os.makedirs("audio_output", exist_ok=True)
 app.mount("/audio", StaticFiles(directory="audio_output"), name="audio")
 
 
 @app.get("/", response_class=FileResponse)
 async def root():
-    """Serve frontend"""
-    # Verificar si existe index.html
+    """Servir le frontend"""
     if os.path.exists("frontend/index.html"):
         return FileResponse("frontend/index.html")
     else:
-        return {"message": "WALL-E AI API is running", "version": "2.1.0", "docs": "/docs"}
+        return {
+            "message": "WALL-E AI API en cours d'exécution",
+            "version": "2.1.0-groq",
+            "provider": "Groq (GRATUIT)",
+            "docs": "/docs"
+        }
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
-    # Test Ollama connection
-    ollama_ok = False
-    try:
-        import httpx
-        response = httpx.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=2.0)
-        ollama_ok = response.status_code == 200
-    except:
-        pass
+    """Vérification de santé"""
+    # Test connexion Groq
+    groq_ok = bool(settings.GROQ_API_KEY)
     
     return HealthResponse(
-        status="healthy",
-        ollama_connected=ollama_ok,
+        status="healthy" if groq_ok else "degraded",
+        ollama_connected=groq_ok,  # Réutilise le champ pour Groq
         whisper_loaded=stt_service.is_loaded,
         tts_loaded=tts_service.is_loaded
     )
@@ -132,32 +137,39 @@ async def health_check():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Text-based chat endpoint
+    Endpoint de chat textuel
     
-    Processes user's text message and returns AI response
+    Traite le message de l'utilisateur et retourne une réponse IA
     """
     try:
-        # Generate session ID if not provided
+        # Vérifier la clé API
+        if not settings.GROQ_API_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail="Clé API Groq non configurée. Configure GROQ_API_KEY dans .env"
+            )
+        
+        # Générer session ID si absent
         session_id = request.session_id or memory_service.generate_session_id()
         
-        logger.info(f"💬 Chat request: {request.query[:50]}...")
+        logger.info(f"💬 Requête chat: {request.query[:50]}...")
         
-        # Save user message
+        # Sauvegarder message utilisateur
         memory_service.add_message(session_id, "user", request.query, request.lang)
         
-        # Get conversation context
+        # Obtenir contexte de conversation
         memory_context = memory_service.get_context_string(session_id, max_messages=10)
         
-        # RAG search if enabled
+        # Recherche RAG si activée
         rag_context = ""
         if request.use_rag:
             try:
                 rag_context = rag_service.rag_search(request.query, request.lang)
             except Exception as e:
-                logger.error(f"❌ RAG search failed: {e}")
+                logger.error(f"❌ Recherche RAG échouée: {e}")
                 rag_context = ""
         
-        # Run teaching crew
+        # Exécuter le teaching crew avec Groq
         response_text = run_teaching_crew(
             query=request.query,
             language=request.lang,
@@ -165,10 +177,10 @@ async def chat(request: ChatRequest):
             research_context=rag_context
         )
         
-        # Save assistant response
+        # Sauvegarder réponse assistant
         memory_service.add_message(session_id, "assistant", response_text, request.lang)
         
-        # Get conversation history
+        # Obtenir historique
         history = memory_service.get_conversation_history(session_id, limit=10)
         
         return ChatResponse(
@@ -178,10 +190,15 @@ async def chat(request: ChatRequest):
             rag_used=request.use_rag and bool(rag_context)
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"❌ Chat error: {e}")
-        logger.exception("Error details:")
-        raise HTTPException(status_code=500, detail=f"Error procesando mensaje: {str(e)}")
+        logger.error(f"❌ Erreur chat: {e}")
+        logger.exception("Détails de l'erreur:")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors du traitement du message: {str(e)}"
+        )
 
 
 @app.post("/voice", response_model=AudioResponse)
@@ -192,34 +209,37 @@ async def voice_chat(
     use_rag: bool = True
 ):
     """
-    Voice-based chat endpoint
+    Endpoint de chat vocal
     
-    Accepts audio file, transcribes it, processes with AI, and returns text + audio response
+    Accepte un fichier audio, le transcrit, traite avec l'IA, et retourne texte + audio
     """
     try:
-        # Verificar que STT esté disponible
+        # Vérifier que STT est disponible
         if not stt_service.is_loaded:
             raise HTTPException(
-                status_code=503, 
-                detail="Servicio de transcripción no disponible. Instala faster-whisper."
+                status_code=503,
+                detail="Service de transcription non disponible. Installe faster-whisper."
             )
         
         session_id = session_id or memory_service.generate_session_id()
         
-        logger.info(f"🎤 Voice request from session: {session_id}")
+        logger.info(f"🎤 Requête vocale de la session: {session_id}")
         
-        # Read audio file
+        # Lire le fichier audio
         audio_bytes = await audio.read()
         
-        # Transcribe audio
+        # Transcrire l'audio
         transcription = await stt_service.transcribe(audio_bytes, language=lang)
         
         if not transcription:
-            raise HTTPException(status_code=400, detail="No speech detected in audio")
+            raise HTTPException(
+                status_code=400,
+                detail="Aucune parole détectée dans l'audio"
+            )
         
-        logger.info(f"📝 Transcribed: {transcription}")
+        logger.info(f"📝 Transcrit: {transcription}")
         
-        # Process like text chat
+        # Traiter comme chat textuel
         memory_service.add_message(session_id, "user", transcription, lang)
         memory_context = memory_service.get_context_string(session_id, max_messages=10)
         
@@ -228,7 +248,7 @@ async def voice_chat(
             try:
                 rag_context = rag_service.rag_search(transcription, lang)
             except Exception as e:
-                logger.error(f"❌ RAG search failed: {e}")
+                logger.error(f"❌ Recherche RAG échouée: {e}")
         
         response_text = run_teaching_crew(
             query=transcription,
@@ -239,14 +259,14 @@ async def voice_chat(
         
         memory_service.add_message(session_id, "assistant", response_text, lang)
         
-        # Generate audio response (if TTS available)
+        # Générer réponse audio (si TTS disponible)
         audio_url = None
         if tts_service.is_loaded:
             try:
                 audio_path = await tts_service.synthesize(response_text, lang, session_id)
                 audio_url = f"/audio/{audio_path.split('/')[-1]}" if audio_path else None
             except Exception as e:
-                logger.warning(f"⚠️ TTS failed: {e}")
+                logger.warning(f"⚠️ TTS échoué: {e}")
         
         return AudioResponse(
             transcription=transcription,
@@ -258,31 +278,33 @@ async def voice_chat(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Voice chat error: {e}")
-        logger.exception("Error details:")
-        raise HTTPException(status_code=500, detail=f"Error procesando audio: {str(e)}")
+        logger.error(f"❌ Erreur chat vocal: {e}")
+        logger.exception("Détails de l'erreur:")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors du traitement de l'audio: {str(e)}"
+        )
 
 
 @app.delete("/session/{session_id}")
 async def clear_session(session_id: str):
-    """Clear conversation history for a session"""
+    """Effacer l'historique de conversation d'une session"""
     try:
-        # TODO: Implementar método delete en memory_service
-        return {"message": "Session cleared", "session_id": session_id}
+        # TODO: Implémenter méthode delete dans memory_service
+        return {"message": "Session effacée", "session_id": session_id}
     except Exception as e:
-        logger.error(f"❌ Clear session error: {e}")
+        logger.error(f"❌ Erreur effacement session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# FIX: Protección para Windows multiprocessing
+# Protection pour Windows multiprocessing
 if __name__ == "__main__":
     import uvicorn
     
-    # FIX: Configuración optimizada para Windows
     uvicorn.run(
-        "backend.main:app",  # String path para evitar problemas de reload
+        "backend.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=False,  # Desactivar reload en producción
+        reload=False,
         log_level="info"
     )
