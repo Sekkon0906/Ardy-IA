@@ -16,3 +16,4 @@ Integra:
 🐿️ Interfaz web animada protagonizada por Ardy, la ardilla del proyecto
 
 El objetivo del proyecto es demostrar un asistente IA completo, integrado y listo para producción, capaz de procesar voz, texto, contexto y generar respuesta hablada.
+		
