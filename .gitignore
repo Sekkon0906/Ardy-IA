@@ -1,0 +1,23 @@
+cat > .gitignore << 'EOF'
+# Entornos virtuales
+.venv/
+venv/
+walle/.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Chroma / bases locales
+backend/chroma/
+backend/.chroma/
+.chroma/
+.walle/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+dist/
+build/
+EOF
+.env
